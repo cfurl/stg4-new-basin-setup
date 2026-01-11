@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "areas": [
+    {
+      "area_id": "ea-rchg-zn",
+      "display_name": "Edwards Recharge Zone",
+      "mask_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/area-masks/ea-rchg-zn.parquet",
+      "vol_calcs_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/ea-rchg-zn/ea-rchg-zn-area-vol-calc-masks.parquet",
+      "out_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/ea-rchg-zn/",
+      "enabled": true
+    },
+    {
+      "area_id": "scvwd",
+      "display_name": "Santa Clara Valley Water",
+      "mask_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/area-masks/scvwd.parquet",
+      "vol_calcs_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/scvwd/scvwd-area-vol-calc-masks.parquet",
+      "out_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/scvwd/",
+      "enabled": true
+    },
+    {
+      "area_id": "nh_cf",
+      "display_name": "New Hanover Co Cape Fear Ws",
+      "mask_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/area-masks/nh_cf.parquet",
+      "vol_calcs_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/nh_cf/nh_cf-area-vol-calc-masks.parquet",
+      "out_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/nh_cf/",
+      "enabled": true
+    },
+    {
+      "area_id": "nueces",
+      "display_name": "Nueces Basin",
+      "mask_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/area-masks/nueces.parquet",
+      "vol_calcs_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/nueces/nueces-area-vol-calc-masks.parquet",
+      "out_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/nueces/",
+      "enabled": true
+    }
+  ]
+}
