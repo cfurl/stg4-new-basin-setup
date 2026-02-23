@@ -6,22 +6,22 @@ library(data.table)
 # CONFIG: EDIT ONLY THIS BLOCK
 # ============================================================
 
-epsg_work  <- 5070          # working CRS (meters, equal-area)
-name_field <- "Name"        # subbasin attribute used for filenames + retained as subbasin_name
+epsg_work  <- 3631          # working CRS (meters, equal-area)
+name_field <- "name"        # subbasin attribute used for filenames + retained as subbasin_name
 
 # Inputs
 path_hrap_conus_in <- "C:/stg4-hrap-gis/layers/hrap/hrap_conus_integer.shp"
-path_mask_in       <- "C:/stg4-hrap-gis/layers/fulton/City_Limits.shp"  # overall AOI mask (may be multi-feature; will be unioned)
-path_subbasins_in  <- "C:/stg4-hrap-gis/layers/fulton/City_Limits.shp"  # subbasins (multi-feature; used for per-basin outputs)
+path_mask_in       <- "C:/stg4-hrap-gis/layers/hanover/cape_fear_basin.shp"  # overall AOI mask (may be multi-feature; will be unioned)
+path_subbasins_in  <- "C:/stg4-hrap-gis/layers/hanover/catchments/nh_cf_huc8_clip.shp"  # subbasins (multi-feature; used for per-basin outputs)
 
 # Key for validation
 path_key_csv <- "C:/stg4-hrap-gis/layers/hrap/grib2_lat_lon_pt_with_grib_decimal_fix.csv"
 
 # Output root for this AOI
-root_out <- "C:/stg4-hrap-gis/layers/fulton"
+root_out <- "C:/stg4-hrap-gis/layers/cape_fear2"
 
 # Naming prefix for outputs
-prefix <- "fulton"
+prefix <- "nh_cf"
 
 # ============================================================
 # DERIVED OUTPUT PATHS (usually do NOT edit)
@@ -408,3 +408,135 @@ for (f in csv_files) {
 }
 
 cat("ALL PASS: Every CSV's (grib_id, hrap_x, hrap_y) matches the authoritative key.\n")
+
+# ============================================================
+# STEP 8: Prepare AWS upload artifacts (Parquet + CSV copies)
+#  - Writes to: prepped/aws/
+#  - boundary mask:
+#      <prefix>-boundary-mask.parquet
+#      <prefix>-boundary-mask.csv  (EXACT copy of prepped/<prefix>_hrap_final.csv)
+#  - area vol calc masks:
+#      <prefix>-area-vol-calc-masks.parquet
+#      <prefix>-area-vol-calc-masks.csv
+# ============================================================
+
+cat("\nSTEP 8: Prepare AWS upload artifacts (prepped/aws)\n")
+
+# deps (additive only)
+if (!requireNamespace("arrow", quietly = TRUE)) {
+  stop("Package 'arrow' is required for STEP 8. Install with install.packages('arrow').")
+}
+library(arrow)
+
+dir_aws <- file.path(dir_prepped, "aws")
+ensure_dir(dir_aws)
+
+# ----------------------------
+# 8A) Boundary mask artifacts
+# ----------------------------
+aws_boundary_csv  <- file.path(dir_aws, paste0(prefix, "-boundary-mask.csv"))
+aws_boundary_parq <- file.path(dir_aws, paste0(prefix, "-boundary-mask.parquet"))
+
+# Exact copy of prepped/<prefix>_hrap_final.csv
+if (!file.exists(path_union_csv)) stop("Boundary CSV not found: ", path_union_csv)
+ok_copy <- file.copy(path_union_csv, aws_boundary_csv, overwrite = TRUE)
+if (!ok_copy) stop("Failed to copy boundary CSV to: ", aws_boundary_csv)
+
+# Parquet version (same content as CSV, types enforced)
+boundary_dt <- fread(aws_boundary_csv)
+need_b <- c("grib_id", "hrap_x", "hrap_y", "bin_area")
+miss_b <- setdiff(need_b, names(boundary_dt))
+if (length(miss_b) > 0) stop("Boundary CSV missing cols: ", paste(miss_b, collapse = ", "))
+
+boundary_dt <- boundary_dt[, .(
+  grib_id  = as.integer(trunc(as.numeric(grib_id))),
+  hrap_x   = as.integer(trunc(as.numeric(hrap_x))),
+  hrap_y   = as.integer(trunc(as.numeric(hrap_y))),
+  bin_area = as.integer(trunc(as.numeric(bin_area)))
+)]
+
+arrow::write_parquet(as.data.frame(boundary_dt), aws_boundary_parq)
+
+cat("  Boundary artifacts written:\n")
+cat("   -", aws_boundary_csv,  "\n")
+cat("   -", aws_boundary_parq, "\n")
+
+# ----------------------------
+# 8B) Area volume calc masks artifacts
+# ----------------------------
+aws_area_csv  <- file.path(dir_aws, paste0(prefix, "-area-vol-calc-masks.csv"))
+aws_area_parq <- file.path(dir_aws, paste0(prefix, "-area-vol-calc-masks.parquet"))
+
+# Gather all subbasin CSVs
+sub_csvs <- list.files(dir_subbasins_out, pattern = "\\.csv$", full.names = TRUE)
+if (length(sub_csvs) == 0) stop("No subbasin CSVs found in: ", dir_subbasins_out)
+
+sub_list <- vector("list", length(sub_csvs))
+
+for (i in seq_along(sub_csvs)) {
+  f <- sub_csvs[i]
+  dt_sub <- fread(f)
+  
+  # Allow empty CSVs; just enforce schema
+  if (nrow(dt_sub) == 0) {
+    sub_list[[i]] <- data.table(
+      grib_id = integer(), hrap_x = integer(), hrap_y = integer(),
+      bin_area = integer(), area_name = character()
+    )
+    next
+  }
+  
+  need_s <- c("grib_id", "hrap_x", "hrap_y", "bin_area", "subbasin_name")
+  miss_s <- setdiff(need_s, names(dt_sub))
+  if (length(miss_s) > 0) {
+    stop("Subbasin CSV missing cols (", basename(f), "): ", paste(miss_s, collapse = ", "))
+  }
+  
+  dt_sub <- dt_sub[, .(
+    grib_id   = as.integer(trunc(as.numeric(grib_id))),
+    hrap_x    = as.integer(trunc(as.numeric(hrap_x))),
+    hrap_y    = as.integer(trunc(as.numeric(hrap_y))),
+    bin_area  = as.integer(trunc(as.numeric(bin_area))),
+    area_name = as.character(subbasin_name)
+  )]
+  
+  sub_list[[i]] <- dt_sub
+}
+
+subs_all <- rbindlist(sub_list, use.names = TRUE, fill = TRUE)
+
+# Add the overall mask rows as another "area" named by prefix
+mask_dt <- fread(path_union_csv)
+need_m <- c("grib_id", "hrap_x", "hrap_y", "bin_area")
+miss_m <- setdiff(need_m, names(mask_dt))
+if (length(miss_m) > 0) stop("Mask CSV missing cols: ", paste(miss_m, collapse = ", "))
+
+mask_dt <- mask_dt[, .(
+  grib_id   = as.integer(trunc(as.numeric(grib_id))),
+  hrap_x    = as.integer(trunc(as.numeric(hrap_x))),
+  hrap_y    = as.integer(trunc(as.numeric(hrap_y))),
+  bin_area  = as.integer(trunc(as.numeric(bin_area))),
+  area_name = as.character(prefix)
+)]
+
+# Combine subbasins + mask
+area_all <- rbindlist(list(subs_all, mask_dt), use.names = TRUE, fill = TRUE)
+
+# Final column order + sanity checks
+area_all <- area_all[, .(grib_id, hrap_x, hrap_y, bin_area, area_name)]
+if (anyNA(area_all$grib_id) || anyNA(area_all$hrap_x) || anyNA(area_all$hrap_y)) {
+  stop("NAs detected in (grib_id, hrap_x, hrap_y) after coercion in STEP 8.")
+}
+if (anyNA(area_all$area_name) || any(area_all$area_name == "")) {
+  stop("Blank/NA area_name detected in STEP 8.")
+}
+
+# Write CSV + Parquet
+fwrite(area_all, aws_area_csv)
+arrow::write_parquet(as.data.frame(area_all), aws_area_parq)
+
+cat("  Area-vol-calc artifacts written:\n")
+cat("   -", aws_area_csv,  "\n")
+cat("   -", aws_area_parq, "\n")
+
+cat("STEP 8 DONE: AWS-ready files are in: ", dir_aws, "\n", sep = "")
