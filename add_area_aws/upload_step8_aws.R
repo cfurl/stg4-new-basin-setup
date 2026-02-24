@@ -24,7 +24,7 @@ s3 <- paws::s3(config = list(region = "us-east-2"))
 bucket <- "stg4-24hr-aws-pipeline"
 
 # ---------- Upload 1 ----------
-local_1 <- "C:/stg4-hrap-gis/layers/cape_fear2/prepped/aws/nh_cf-boundary-mask.parquet"
+local_1 <- "C:/stg4-hrap-gis/layers/cape_fear3/prepped/aws/nh_cf-boundary-mask.parquet"
 key_1   <- "CONUS_subset/config/aoi/nh_cf/assets/nh_cf-boundary-mask.parquet"
 
 raw_1 <- readBin(local_1, what = "raw", n = file.info(local_1)$size)
@@ -37,7 +37,7 @@ s3$put_object(
 message("Uploaded: s3://", bucket, "/", key_1)
 
 # ---------- Upload 2 ----------
-local_2 <- "C:/stg4-hrap-gis/layers/cape_fear2/prepped/aws/nh_cf-area-vol-calc-masks.parquet"
+local_2 <- "C:/stg4-hrap-gis/layers/cape_fear3/prepped/aws/nh_cf-area-vol-calc-masks.parquet"
 key_2   <- "CONUS_subset/config/aoi/nh_cf/assets/nh_cf-area-vol-calc-masks.parquet"
 
 raw_2 <- readBin(local_2, what = "raw", n = file.info(local_2)$size)

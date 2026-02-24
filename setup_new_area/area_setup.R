@@ -11,14 +11,14 @@ name_field <- "name"        # subbasin attribute used for filenames + retained a
 
 # Inputs
 path_hrap_conus_in <- "C:/stg4-hrap-gis/layers/hrap/hrap_conus_integer.shp"
-path_mask_in       <- "C:/stg4-hrap-gis/layers/hanover/cape_fear_basin.shp"  # overall AOI mask (may be multi-feature; will be unioned)
+path_mask_in       <- "C:/stg4-hrap-gis/layers/hanover/prepped/nh_cf_hrap_final.shp"  # overall AOI mask (may be multi-feature; will be unioned)
 path_subbasins_in  <- "C:/stg4-hrap-gis/layers/hanover/catchments/nh_cf_huc8_clip.shp"  # subbasins (multi-feature; used for per-basin outputs)
 
 # Key for validation
 path_key_csv <- "C:/stg4-hrap-gis/layers/hrap/grib2_lat_lon_pt_with_grib_decimal_fix.csv"
 
 # Output root for this AOI
-root_out <- "C:/stg4-hrap-gis/layers/cape_fear2"
+root_out <- "C:/stg4-hrap-gis/layers/cape_fear3"
 
 # Naming prefix for outputs
 prefix <- "nh_cf"
