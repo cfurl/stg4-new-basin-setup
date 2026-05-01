@@ -6,22 +6,22 @@ library(data.table)
 # CONFIG: EDIT ONLY THIS BLOCK
 # ============================================================
 
-epsg_work  <- 3631          # working CRS (meters, equal-area)
-name_field <- "name"        # subbasin attribute used for filenames + retained as subbasin_name
+epsg_work  <- 3083          # working CRS (meters, equal-area) 3083 is Texas Centric Albers Equal Area
+name_field <- "basin_name"        # subbasin attribute used for filenames + retained as subbasin_name
 
 # Inputs
 path_hrap_conus_in <- "C:/stg4-hrap-gis/layers/hrap/hrap_conus_integer.shp"
-path_mask_in       <- "C:/stg4-hrap-gis/layers/hanover/prepped/nh_cf_hrap_final.shp"  # overall AOI mask (may be multi-feature; will be unioned)
-path_subbasins_in  <- "C:/stg4-hrap-gis/layers/hanover/catchments/nh_cf_huc8_clip.shp"  # subbasins (multi-feature; used for per-basin outputs)
+path_mask_in       <- "C:/stg4-hrap-gis/layers/texas_mrb/TWDB_MRBs_2014.shp"  # overall AOI mask (may be multi-feature; will be unioned)
+path_subbasins_in  <- "C:/stg4-hrap-gis/layers/texas_mrb/TWDB_MRBs_2014.shp"  # subbasins (multi-feature; used for per-basin outputs)
 
 # Key for validation
 path_key_csv <- "C:/stg4-hrap-gis/layers/hrap/grib2_lat_lon_pt_with_grib_decimal_fix.csv"
 
 # Output root for this AOI
-root_out <- "C:/stg4-hrap-gis/layers/cape_fear3"
+root_out <- "C:/stg4-hrap-gis/layers/texas_mrb/area_setup"
 
 # Naming prefix for outputs
-prefix <- "nh_cf"
+prefix <- "texas_mrb"
 
 # ============================================================
 # DERIVED OUTPUT PATHS (usually do NOT edit)
