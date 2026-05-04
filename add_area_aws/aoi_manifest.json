@@ -4,34 +4,92 @@
     {
       "area_id": "ea-rchg-zn",
       "display_name": "Edwards Recharge Zone",
-      "mask_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/area-masks/ea-rchg-zn.parquet",
-      "vol_calcs_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/ea-rchg-zn/ea-rchg-zn-area-vol-calc-masks.parquet",
-      "out_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/ea-rchg-zn/",
-      "enabled": true
+      "mask_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/ea-rchg-zn/assets/ea-rchg-zn-boundary-mask.parquet",
+      "vol_calcs_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/ea-rchg-zn/assets/ea-rchg-zn-area-vol-calc-masks.parquet",
+      "out_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/production_areas/ea-rchg-zn/",
+      "enabled": true,
+      "map_epsg": 3857,
+
+      "assets_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/ea-rchg-zn/assets/",
+      "recipes_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/map_recipes.json",
+
+      "maps_assets_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/ea-rchg-zn/assets/",
+      "maps_recipes_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/map_recipes.json"
     },
     {
       "area_id": "scvwd",
       "display_name": "Santa Clara Valley Water",
-      "mask_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/area-masks/scvwd.parquet",
-      "vol_calcs_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/scvwd/scvwd-area-vol-calc-masks.parquet",
-      "out_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/scvwd/",
-      "enabled": true
+      "mask_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/scvwd/assets/scvwd-boundary-mask.parquet",
+      "vol_calcs_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/scvwd/assets/scvwd-area-vol-calc-masks.parquet",
+      "out_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/production_areas/scvwd/",
+      "enabled": false,
+      "map_epsg": 3310,
+
+      "assets_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/scvwd/assets/",
+      "recipes_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/map_recipes.json",
+
+      "maps_assets_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/scvwd/assets/",
+      "maps_recipes_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/map_recipes.json"
     },
     {
       "area_id": "nh_cf",
       "display_name": "New Hanover Co Cape Fear Ws",
-      "mask_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/area-masks/nh_cf.parquet",
-      "vol_calcs_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/nh_cf/nh_cf-area-vol-calc-masks.parquet",
-      "out_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/nh_cf/",
-      "enabled": true
+      "mask_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/nh_cf/assets/nh_cf-boundary-mask.parquet",
+      "vol_calcs_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/nh_cf/assets/nh_cf-area-vol-calc-masks.parquet",
+      "out_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/production_areas/nh_cf/",
+      "enabled": true,
+      "map_epsg": 3631,
+
+      "assets_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/nh_cf/assets/",
+      "recipes_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/map_recipes.json",
+
+      "maps_assets_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/nh_cf/assets/",
+      "maps_recipes_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/map_recipes.json"
+    },
+    {
+      "area_id": "fulton",
+      "display_name": "Fulton County Georgia",
+      "mask_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/fulton/assets/fulton-boundary-mask.parquet",
+      "vol_calcs_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/fulton/assets/fulton-area-vol-calc-masks.parquet",
+      "out_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/production_areas/fulton/",
+      "enabled": false,
+      "map_epsg": 5070,
+
+      "assets_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/fulton/assets/",
+      "recipes_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/map_recipes.json",
+
+      "maps_assets_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/fulton/assets/",
+      "maps_recipes_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/map_recipes.json"
+    },
+	{
+      "area_id": "texas_mrb",
+      "display_name": "Texas Major River Basins",
+      "mask_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/texas_mrb/assets/texas_mrb-boundary-mask.parquet",
+      "vol_calcs_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/texas_mrb/assets/texas_mrb-area-vol-calc-masks.parquet",
+      "out_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/production_areas/texas_mrb/",
+      "enabled": true,
+      "map_epsg": 3083,
+
+      "assets_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/texas_mrb/assets/",
+      "recipes_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/map_recipes.json",
+
+      "maps_assets_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/texas_mrb/assets/",
+      "maps_recipes_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/map_recipes.json"
     },
     {
       "area_id": "nueces",
       "display_name": "Nueces Basin",
-      "mask_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/area-masks/nueces.parquet",
-      "vol_calcs_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/nueces/nueces-area-vol-calc-masks.parquet",
-      "out_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/nueces/",
-      "enabled": true
+      "mask_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/nueces/assets/nueces-boundary-mask.parquet",
+      "vol_calcs_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/nueces/assets/nueces-area-vol-calc-masks.parquet",
+      "out_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/production_areas/nueces/",
+      "enabled": false,
+      "map_epsg": 3857,
+
+      "assets_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/nueces/assets/",
+      "recipes_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/map_recipes.json",
+
+      "maps_assets_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/nueces/assets/",
+      "maps_recipes_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/map_recipes.json"
     }
   ]
 }
