@@ -67,7 +67,7 @@ cfg <- list(
   # Processing window.
   # Use full available archive by default.
   date_start = as.Date("2002-01-01"),
-  date_end   = as.Date("2002-01-31"), #2026-05-03
+  date_end   = as.Date("2026-05-03"), #2026-05-03
   
   # Safety: set Inf for full rebuild.
   max_days_total = Inf,
