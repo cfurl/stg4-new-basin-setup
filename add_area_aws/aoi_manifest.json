@@ -17,6 +17,21 @@
       "maps_recipes_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/map_recipes.json"
     },
     {
+      "area_id": "labatt",
+      "display_name": "Bundy Turtle Flatonia",
+      "mask_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/labatt/assets/labatt-boundary-mask.parquet",
+      "vol_calcs_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/labatt/assets/labatt-area-vol-calc-masks.parquet",
+      "out_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/production_areas/labatt/",
+      "enabled": true,
+      "map_epsg": 3083,
+
+      "assets_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/labatt/assets/",
+      "recipes_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/map_recipes.json",
+
+      "maps_assets_prefix": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/labatt/assets/",
+      "maps_recipes_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/map_recipes.json"
+    },
+    {
       "area_id": "scvwd",
       "display_name": "Santa Clara Valley Water",
       "mask_uri": "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/scvwd/assets/scvwd-boundary-mask.parquet",

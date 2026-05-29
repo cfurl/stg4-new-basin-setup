@@ -28,8 +28,8 @@ bucket <- "stg4-24hr-aws-pipeline"
 
 # ---------- Upload 1 ----------
 
-local_1 <- "C:/stg4-hrap-gis/layers/texas_mrb/area_setup/prepped/aws/texas_mrb-boundary-mask.parquet"
-key_1   <- "CONUS_subset/config/aoi/texas_mrb/assets/texas_mrb-boundary-mask.parquet"
+local_1 <- "C:/stg4-hrap-gis/layers/labatt/area_setup/prepped/aws/labatt-boundary-mask.parquet"
+key_1   <- "CONUS_subset/config/aoi/labatt/assets/labatt-boundary-mask.parquet"
 
 raw_1 <- readBin(local_1, what = "raw", n = file.info(local_1)$size)
 s3$put_object(
@@ -41,8 +41,8 @@ s3$put_object(
 message("Uploaded: s3://", bucket, "/", key_1)
 
 # ---------- Upload 2 ----------
-local_2 <- "C:/stg4-hrap-gis/layers/texas_mrb/area_setup/prepped/aws/texas_mrb-area-vol-calc-masks.parquet"
-key_2   <- "CONUS_subset/config/aoi/texas_mrb/assets/texas_mrb-area-vol-calc-masks.parquet"
+local_2 <- "C:/stg4-hrap-gis/layers/labatt/area_setup/prepped/aws/labatt-area-vol-calc-masks.parquet"
+key_2   <- "CONUS_subset/config/aoi/labatt/assets/labatt-area-vol-calc-masks.parquet"
 
 raw_2 <- readBin(local_2, what = "raw", n = file.info(local_2)$size)
 s3$put_object(
@@ -56,8 +56,8 @@ message("Uploaded: s3://", bucket, "/", key_2)
 # ---------- Upload 3 ----------
 # (GeoPackage: cells.gpkg)
 
-local_3 <- "C:/stg4-hrap-gis/layers/texas_mrb/area_setup/prepped/cells.gpkg"  # <-- fill in
-key_3   <- "CONUS_subset/config/aoi/texas_mrb/assets/cells.gpkg"  # <-- fill in
+local_3 <- "C:/stg4-hrap-gis/layers/labatt/area_setup/prepped/cells.gpkg"  # <-- fill in
+key_3   <- "CONUS_subset/config/aoi/labatt/assets/cells.gpkg"  # <-- fill in
 
 raw_3 <- readBin(local_3, what = "raw", n = file.info(local_3)$size)
 s3$put_object(

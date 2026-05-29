@@ -1,0 +1,7 @@
+i need to formalize this process, but here is what i've got
+
+1. Do your gis work, get your extent and your subbasins into a single shapefile
+2. Run setup_new_area/area_setup.R
+3. Add_area_aws/upload_step8_aws.R
+4. Create a new manifest then
+5. Add_area_aws/upload_manifest.R

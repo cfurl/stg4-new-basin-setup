@@ -7,21 +7,21 @@ library(data.table)
 # ============================================================
 
 epsg_work  <- 3083          # working CRS (meters, equal-area) 3083 is Texas Centric Albers Equal Area
-name_field <- "basin_name"        # subbasin attribute used for filenames + retained as subbasin_name
+name_field <- "feat_type"        # subbasin attribute used for filenames + retained as subbasin_name
 
 # Inputs
 path_hrap_conus_in <- "C:/stg4-hrap-gis/layers/hrap/hrap_conus_integer.shp"
-path_mask_in       <- "C:/stg4-hrap-gis/layers/texas_mrb/TWDB_MRBs_2014.shp"  # overall AOI mask (may be multi-feature; will be unioned)
-path_subbasins_in  <- "C:/stg4-hrap-gis/layers/texas_mrb/TWDB_MRBs_2014.shp"  # subbasins (multi-feature; used for per-basin outputs)
+path_mask_in       <- "C:/stg4-hrap-gis/layers/labatt/production/labatt_geom_clean.shp"  # overall AOI mask (may be multi-feature; will be unioned)
+path_subbasins_in  <- "C:/stg4-hrap-gis/layers/labatt/production/labatt_geom_clean.shp"  # subbasins (multi-feature; used for per-basin outputs)
 
 # Key for validation
 path_key_csv <- "C:/stg4-hrap-gis/layers/hrap/grib2_lat_lon_pt_with_grib_decimal_fix.csv"
 
 # Output root for this AOI
-root_out <- "C:/stg4-hrap-gis/layers/texas_mrb/area_setup"
+root_out <- "C:/stg4-hrap-gis/layers/labatt/area_setup"
 
 # Naming prefix for outputs
-prefix <- "texas_mrb"
+prefix <- "labatt"
 
 # ============================================================
 # DERIVED OUTPUT PATHS (usually do NOT edit)
