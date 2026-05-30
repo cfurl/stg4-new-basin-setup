@@ -1,17 +1,10 @@
-# backfill_aoi_cum_precip_patched.R  (DROP-IN, GENERIC CONFIG AT TOP + QA)
-#
-# Local backfill for ANY AOI:
-#   - Reads CONUS parquet from a local canonical archive (no S3 CONUS reads)
-#   - Downloads AOI boundary mask + area-vol-calc masks ONCE from S3 (cached locally)
-#   - Writes AOI precip + daily stats + derived_ytd_precip + ytd stats to local disk
-#   - YTD RESETS each Jan 1 (days_present will not exceed 365/366)
-#
-# NEW:
-#   - Writes QA outputs under: <out_root>/qa/
-#     * qa_file_counts_<area_id>_<run_id>.csv  (expected vs present per year)
-#     * missing_dates_<dataset>_year=<YYYY>_<run_id>.txt  (only when missing)
-#     * qa_parquet_schemas_<area_id>_<run_id>.csv (assets + one file per dataset)
-#     * qa_summary_<area_id>_<run_id>.txt
+# backfill_aoi_cum_precip_patched_QA_single_areaid.R
+# Local AOI backfill (any AOI) with:
+#  - S3 downloads ONLY for boundary-mask + area-vol-calc-masks (cached locally)
+#  - Local reads from CONUS parquet archive
+#  - Local writes: precip/precip_parquet, stats/daily, derived_ytd_precip, stats/ytd
+#  - YTD resets each Jan 1
+#  - QA outputs under <out_root>/qa/
 
 suppressPackageStartupMessages({
   library(dplyr)
@@ -21,39 +14,40 @@ suppressPackageStartupMessages({
 })
 
 # ============================================================
-# CONFIG: EDIT ONLY THIS BLOCK
+# MASTER CONFIG (EDIT ONLY THIS BLOCK)
 # ============================================================
+AREA_ID <- "labatt"   # <--- change ONLY this when switching AOIs
+
 cfg <- list(
-  # Identity
-  area_id = "labatt",
-  cycle_hour = "12",   # 24h product uses 12Z
+  area_id = AREA_ID,
+  cycle_hour = "12",  # fixed for 24h product
   
   # Local CONUS parquet repository (input)
-  # expects: .../year=YYYY/month=MM/day=DD/part-0.parquet
   conus_local_root = "F:/conus_archive_build/stg4_24hr_conus_archive/parquet",
   
-  # Local output root (writes to precip/, stats/, derived_ytd_precip/)
-  out_root = "F:/texas_mrb_archive_build",
+  # Local output base (out_root becomes F:/<area_id>_archive_build)
+  out_base = "F:/",
   
-  # S3 asset URIs (downloaded once; cached under out_root/_cache/)
-  boundary_mask_uri = "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/labatt/assets/labatt-boundary-mask.parquet",
-  area_vol_calcs_uri = "s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi/labatt/assets/labatt-area-vol-calc-masks.parquet",
-  
-  # AWS creds (only used to download the two assets above)
+  # AWS creds file (used only for downloading AOI assets)
   renviron_path = ".Renviron",
   aws_region = "us-east-2",
   
-  # Optional local processing window (inclusive). Use NA to ignore.
-  date_start = as.Date(NA),   # e.g., as.Date("2002-01-01")
-  date_end   = as.Date(NA),   # e.g., as.Date("2026-05-03")
+  # S3 locations (derived ONLY from area_id)
+  pipeline_bucket = "stg4-24hr-aws-pipeline",
+  aoi_config_prefix = "CONUS_subset/config/aoi",
   
-  # Safety: process only first N days after filtering/sorting. Set Inf to unleash.
+  # Optional processing window (inclusive). NA = ignore
+  date_start = as.Date(NA),
+  date_end   = as.Date(NA),
+  
+  # Safety cap (set Inf to unleash)
   max_days_total = 3,
   
-  # Behavior toggles
-  skip_existing = TRUE,        # if outputs exist for a day, skip that day
-  strict_join = TRUE,          # boundary mask HRAP mismatch => stop
-  strict_volcalc_join = TRUE,  # vol-calcs HRAP mismatch => stop
+  # Behavior
+  skip_existing = TRUE,              # skip a day if *all* outputs exist
+  seed_ytd_on_skip = TRUE,           # if skipping, seed cum_ytd/cum_vol from existing outputs
+  strict_join = TRUE,
+  strict_volcalc_join = TRUE,
   
   # What to write
   write_precip = TRUE,
@@ -61,12 +55,23 @@ cfg <- list(
   write_derived_ytd_precip = TRUE,
   write_ytd_stats = TRUE
 )
-# ============================================================
 
-# -----------------------------
-# Derived paths
-# -----------------------------
+# ============================================================
+# Derived paths (do not edit)
+# ============================================================
+cfg$out_root <- file.path(cfg$out_base, paste0(cfg$area_id, "_archive_build"))
+
+cfg$boundary_mask_uri <- sprintf(
+  "s3://%s/%s/%s/assets/%s-boundary-mask.parquet",
+  cfg$pipeline_bucket, cfg$aoi_config_prefix, cfg$area_id, cfg$area_id
+)
+cfg$area_vol_calcs_uri <- sprintf(
+  "s3://%s/%s/%s/assets/%s-area-vol-calc-masks.parquet",
+  cfg$pipeline_bucket, cfg$aoi_config_prefix, cfg$area_id, cfg$area_id
+)
+
 cfg$cache_dir <- file.path(cfg$out_root, "_cache")
+cfg$qa_dir    <- file.path(cfg$out_root, "qa")
 
 cfg$out_precip_root <- file.path(cfg$out_root, "precip", "precip_parquet")
 cfg$out_daily_root  <- file.path(cfg$out_root, "stats", "daily")
@@ -74,29 +79,23 @@ cfg$out_ytd_root    <- file.path(cfg$out_root, "stats", "ytd")
 cfg$out_dytd_root   <- file.path(cfg$out_root, "derived_ytd_precip")
 
 dir.create(cfg$cache_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(cfg$qa_dir,    recursive = TRUE, showWarnings = FALSE)
 dir.create(cfg$out_precip_root, recursive = TRUE, showWarnings = FALSE)
 dir.create(cfg$out_daily_root,  recursive = TRUE, showWarnings = FALSE)
 dir.create(cfg$out_ytd_root,    recursive = TRUE, showWarnings = FALSE)
 dir.create(cfg$out_dytd_root,   recursive = TRUE, showWarnings = FALSE)
 
-# -----------------------------
-# QA outputs (written under out_root/qa)
-# -----------------------------
-cfg$qa_dir <- file.path(cfg$out_root, "qa")
-dir.create(cfg$qa_dir, recursive = TRUE, showWarnings = FALSE)
 run_id <- format(Sys.time(), "%Y%m%dT%H%M%SZ", tz = "UTC")
 
-# -----------------------------
-# Logging
-# -----------------------------
 log_msg <- function(..., level="INFO") {
   ts <- format(Sys.time(), tz="UTC", usetz=TRUE)
-  message(sprintf("[%s][AOI_LOCAL_BACKFILL][%s] %s", ts, level, paste0(..., collapse="")))
+  message(sprintf("[%s][AOI_LOCAL_BACKFILL][%s][%s] %s",
+                  ts, level, cfg$area_id, paste0(..., collapse="")))
 }
 
-# -----------------------------
+# ============================================================
 # Helpers
-# -----------------------------
+# ============================================================
 parse_s3_uri <- function(uri) {
   x <- sub("^s3://", "", uri)
   parts <- strsplit(x, "/", fixed = TRUE)[[1]]
@@ -125,7 +124,8 @@ detect_rain_col <- function(df, cycle_eff) {
   if (length(candidates) == 1) return(candidates)
   exact <- paste0("rain_", cycle_eff, "_mm")
   if (exact %in% candidates) return(exact)
-  stop("Multiple rain cols found; none match cycle_eff=", cycle_eff, " found=", paste(candidates, collapse=", "))
+  stop("Multiple rain cols found; none match cycle_eff=", cycle_eff,
+       " found=", paste(candidates, collapse=", "))
 }
 
 parse_date_from_conus_path <- function(p) {
@@ -146,6 +146,15 @@ out_day_path <- function(root, d) {
 }
 
 ensure_dir_for_file <- function(p) dir.create(dirname(p), recursive = TRUE, showWarnings = FALSE)
+
+schema_from_parquet <- function(p) {
+  df <- arrow::read_parquet(p)
+  data.frame(
+    col_name = names(df),
+    col_type = vapply(df, function(x) paste(class(x), collapse="/"), character(1)),
+    stringsAsFactors = FALSE
+  )
+}
 
 # ============================================================
 # 0) AWS init (only to download 2 assets)
@@ -182,18 +191,22 @@ vol_masks <- arrow::read_parquet(vol_cache) %>%
   ) %>%
   distinct(grib_id, hrap_x, hrap_y, bin_area, area_name, .keep_all = TRUE)
 
+log_msg("Resolved asset URIs:",
+        " boundary_mask_uri=", cfg$boundary_mask_uri,
+        " area_vol_calcs_uri=", cfg$area_vol_calcs_uri)
+
 log_msg("Mask rows: ", nrow(mask))
 log_msg("Vol-mask rows: ", nrow(vol_masks), " distinct areas=", n_distinct(vol_masks$area_name))
 
 # ============================================================
 # 2) Discover local CONUS files
 # ============================================================
-conus_files <- list.files(cfg$conus_local_root, pattern="part-0\\.parquet$", recursive=TRUE, full.names=TRUE)
+conus_files <- list.files(cfg$conus_local_root, pattern="part-0\\.parquet$",
+                          recursive=TRUE, full.names=TRUE)
 if (length(conus_files) == 0) stop("No CONUS parquets found under: ", cfg$conus_local_root)
 
 conus_dates <- as.Date(vapply(conus_files, parse_date_from_conus_path, as.Date(NA)))
 ok <- !is.na(conus_dates)
-
 conus_files <- conus_files[ok]
 conus_dates <- conus_dates[ok]
 
@@ -237,8 +250,8 @@ for (yr in years) {
   year_dates <- year_dates[ord2]
   
   # Reset YTD accumulators for this year
-  cum_ytd <- NULL  # grib_id, rain_ytd_mm
-  cum_vol <- NULL  # area_name, area_m2, ytd_vol_m3
+  cum_ytd <- NULL
+  cum_vol <- NULL
   
   year_start <- as.Date(paste0(yr, "-01-01"))
   processed_dates <- as.Date(character(0))
@@ -249,16 +262,34 @@ for (yr in years) {
     d <- as.Date(year_dates[ii], origin="1970-01-01")
     cycle_eff <- paste0(format(d, "%Y%m%d"), cfg$cycle_hour)
     
-    # output paths
     out_precip <- out_day_path(cfg$out_precip_root, d)
     out_daily  <- out_day_path(cfg$out_daily_root,  d)
     out_dytd   <- out_day_path(cfg$out_dytd_root,   d)
     out_ytd    <- out_day_path(cfg$out_ytd_root,    d)
     
-    if (isTRUE(cfg$skip_existing) &&
-        file.exists(out_precip) && file.exists(out_daily) && file.exists(out_dytd) && file.exists(out_ytd)) {
-      log_msg("[", yr, " ", ii, "/", length(year_files), "] SKIP (exists): ", as.character(d))
+    all_exist <- file.exists(out_precip) && file.exists(out_daily) &&
+      file.exists(out_dytd) && file.exists(out_ytd)
+    
+    if (isTRUE(cfg$skip_existing) && all_exist) {
+      
+      # Seed accumulators so later days remain correct during incremental reruns
+      if (isTRUE(cfg$seed_ytd_on_skip)) {
+        dytd_existing <- arrow::read_parquet(out_dytd)
+        cum_ytd <- dytd_existing %>%
+          transmute(grib_id = as.integer(grib_id),
+                    rain_ytd_mm = as.numeric(rain_ytd_mm)) %>%
+          distinct(grib_id, .keep_all = TRUE)
+        
+        ytd_existing <- arrow::read_parquet(out_ytd)
+        cum_vol <- ytd_existing %>%
+          transmute(area_name = as.character(area_name),
+                    area_m2 = as.numeric(area_m2),
+                    ytd_vol_m3 = as.numeric(ytd_vol_m3)) %>%
+          distinct(area_name, .keep_all = TRUE)
+      }
+      
       processed_dates <- sort(unique(c(processed_dates, d)))
+      log_msg("[", yr, " ", ii, "/", length(year_files), "] SKIP (exists): ", as.character(d))
       next
     }
     
@@ -268,15 +299,13 @@ for (yr in years) {
     rain_col <- detect_rain_col(conus, cycle_eff)
     
     conus2 <- conus %>%
-      mutate(
-        cycle = cycle_eff,
-        rain_mm = .data[[rain_col]]
-      ) %>%
+      mutate(cycle = cycle_eff,
+             rain_mm = .data[[rain_col]]) %>%
       select(-all_of(rain_col))
     
-    # ========================================================
-    # A) AOI precip subset (boundary mask join)
-    # ========================================================
+    # -------------------------
+    # A) AOI precip subset
+    # -------------------------
     joined <- conus2 %>%
       inner_join(mask, by="grib_id", suffix=c("", "_mask"))
     
@@ -306,86 +335,70 @@ for (yr in years) {
       next
     }
     
-    if (isTRUE(cfg$write_precip) && !(isTRUE(cfg$skip_existing) && file.exists(out_precip))) {
+    if (isTRUE(cfg$write_precip)) {
       ensure_dir_for_file(out_precip)
       arrow::write_parquet(aoi, out_precip, compression="zstd")
       if (file.info(out_precip)$size < 10*1024) stop("Precip parquet too small: ", out_precip)
     }
     
-    # ========================================================
-    # B) Daily stats (vol-calcs join)
-    # ========================================================
-    if (isTRUE(cfg$write_daily_stats) && !(isTRUE(cfg$skip_existing) && file.exists(out_daily))) {
-      
-      rain_df <- conus2 %>%
-        transmute(
-          grib_id = as.integer(grib_id),
-          hrap_x  = as.integer(hrap_x),
-          hrap_y  = as.integer(hrap_y),
-          rain_mm = as.numeric(rain_mm)
-        )
-      
-      stats_join <- rain_df %>%
-        inner_join(vol_masks, by="grib_id", suffix=c("", "_vol"))
-      
-      mismatch2 <- stats_join %>%
-        filter(hrap_x != hrap_x_vol | hrap_y != hrap_y_vol) %>%
-        nrow()
-      
-      if (mismatch2 > 0) {
-        msg2 <- paste0("HRAP mismatch after vol-calcs join: ", mismatch2, " rows on ", as.character(d))
-        if (isTRUE(cfg$strict_volcalc_join)) stop(msg2) else log_msg(msg2, level="WARN")
-      }
-      
-      daily_stats <- stats_join %>%
-        mutate(
-          rain_mm0 = ifelse(is.na(rain_mm), 0, rain_mm),
-          vol_m3_bin = (rain_mm0 / 1000) * bin_area
-        ) %>%
-        group_by(area_name) %>%
-        summarise(
-          area_id   = cfg$area_id,
-          cycle_eff = cycle_eff,
-          date_utc  = as.character(d),
-          area_m2   = sum(bin_area, na.rm = TRUE),
-          vol_m3    = sum(vol_m3_bin, na.rm = TRUE),
-          basin_avg_mm = (vol_m3 / area_m2) * 1000,
-          max_bin_mm   = max(rain_mm0, na.rm = TRUE),
-          
-          pct_area_gt_2p54mm  = 100 * (sum(bin_area[rain_mm0 > 2.54],  na.rm = TRUE) / sum(bin_area, na.rm = TRUE)),
-          pct_area_gt_6p35mm  = 100 * (sum(bin_area[rain_mm0 > 6.35],  na.rm = TRUE) / sum(bin_area, na.rm = TRUE)),
-          pct_area_gt_12p7mm  = 100 * (sum(bin_area[rain_mm0 > 12.7],  na.rm = TRUE) / sum(bin_area, na.rm = TRUE)),
-          pct_area_gt_19p05mm = 100 * (sum(bin_area[rain_mm0 > 19.05], na.rm = TRUE) / sum(bin_area, na.rm = TRUE)),
-          pct_area_gt_25p4mm  = 100 * (sum(bin_area[rain_mm0 > 25.4],  na.rm = TRUE) / sum(bin_area, na.rm = TRUE)),
-          pct_area_gt_31p75mm = 100 * (sum(bin_area[rain_mm0 > 31.75], na.rm = TRUE) / sum(bin_area, na.rm = TRUE)),
-          pct_area_gt_38p1mm  = 100 * (sum(bin_area[rain_mm0 > 38.1],  na.rm = TRUE) / sum(bin_area, na.rm = TRUE)),
-          
-          n_bins    = dplyr::n(),
-          .groups = "drop"
-        ) %>%
-        select(area_id, area_name, cycle_eff, date_utc, n_bins, area_m2, vol_m3, basin_avg_mm, max_bin_mm,
-               pct_area_gt_2p54mm, pct_area_gt_6p35mm, pct_area_gt_12p7mm, pct_area_gt_19p05mm,
-               pct_area_gt_25p4mm, pct_area_gt_31p75mm, pct_area_gt_38p1mm)
-      
+    # -------------------------
+    # B) Daily stats
+    # -------------------------
+    rain_df <- conus2 %>%
+      transmute(
+        grib_id = as.integer(grib_id),
+        hrap_x  = as.integer(hrap_x),
+        hrap_y  = as.integer(hrap_y),
+        rain_mm = as.numeric(rain_mm)
+      )
+    
+    stats_join <- rain_df %>%
+      inner_join(vol_masks, by="grib_id", suffix=c("", "_vol"))
+    
+    mismatch2 <- stats_join %>%
+      filter(hrap_x != hrap_x_vol | hrap_y != hrap_y_vol) %>%
+      nrow()
+    
+    if (mismatch2 > 0) {
+      msg2 <- paste0("HRAP mismatch after vol-calcs join: ", mismatch2, " rows on ", as.character(d))
+      if (isTRUE(cfg$strict_volcalc_join)) stop(msg2) else log_msg(msg2, level="WARN")
+    }
+    
+    daily_stats <- stats_join %>%
+      mutate(
+        rain_mm0 = ifelse(is.na(rain_mm), 0, rain_mm),
+        vol_m3_bin = (rain_mm0 / 1000) * bin_area
+      ) %>%
+      group_by(area_name) %>%
+      summarise(
+        area_id   = cfg$area_id,
+        cycle_eff = cycle_eff,
+        date_utc  = as.character(d),
+        area_m2   = sum(bin_area, na.rm = TRUE),
+        vol_m3    = sum(vol_m3_bin, na.rm = TRUE),
+        basin_avg_mm = (vol_m3 / area_m2) * 1000,
+        max_bin_mm   = max(rain_mm0, na.rm = TRUE),
+        n_bins    = dplyr::n(),
+        .groups = "drop"
+      ) %>%
+      select(area_id, area_name, cycle_eff, date_utc, n_bins, area_m2, vol_m3, basin_avg_mm, max_bin_mm)
+    
+    if (isTRUE(cfg$write_daily_stats)) {
       ensure_dir_for_file(out_daily)
       arrow::write_parquet(daily_stats, out_daily, compression="zstd")
       if (file.info(out_daily)$size < 1024) stop("Daily stats parquet too small: ", out_daily)
-    } else {
-      daily_stats <- arrow::read_parquet(out_daily)
     }
     
-    # Mark this day processed successfully (used for days_present)
+    # mark processed day for coverage stats
     processed_dates <- sort(unique(c(processed_dates, d)))
-    
-    # Coverage metrics like the worker (present vs expected)
     days_present  <- length(processed_dates)
     days_expected <- length(seq.Date(year_start, d, by="day"))
     days_missing  <- days_expected - days_present
     
-    # ========================================================
-    # C) derived_ytd_precip (YEAR RESET)
-    # ========================================================
-    if (isTRUE(cfg$write_derived_ytd_precip) && !(isTRUE(cfg$skip_existing) && file.exists(out_dytd))) {
+    # -------------------------
+    # C) derived_ytd_precip (reset each year)
+    # -------------------------
+    if (isTRUE(cfg$write_derived_ytd_precip)) {
       
       day_rain <- aoi %>%
         transmute(
@@ -419,10 +432,10 @@ for (yr in years) {
       if (file.info(out_dytd)$size < 1024) stop("derived_ytd_precip parquet too small: ", out_dytd)
     }
     
-    # ========================================================
-    # D) YTD stats (YEAR RESET)
-    # ========================================================
-    if (isTRUE(cfg$write_ytd_stats) && !(isTRUE(cfg$skip_existing) && file.exists(out_ytd))) {
+    # -------------------------
+    # D) stats/ytd (reset each year)
+    # -------------------------
+    if (isTRUE(cfg$write_ytd_stats)) {
       
       daily_vol <- daily_stats %>%
         transmute(
@@ -454,7 +467,8 @@ for (yr in years) {
           days_missing  = days_missing,
           ytd_avg_mm = (ytd_vol_m3 / area_m2) * 1000
         ) %>%
-        select(area_id, area_name, year, days_present, days_expected, days_missing, area_m2, ytd_vol_m3, ytd_avg_mm)
+        select(area_id, area_name, year, days_present, days_expected, days_missing,
+               area_m2, ytd_vol_m3, ytd_avg_mm)
       
       ensure_dir_for_file(out_ytd)
       arrow::write_parquet(ytd_stats, out_ytd, compression="zstd")
@@ -462,10 +476,6 @@ for (yr in years) {
     }
     
     log_msg("OK ", as.character(d),
-            " | precip=", out_precip,
-            " | daily=", out_daily,
-            " | dytd=", out_dytd,
-            " | ytd=", out_ytd,
             " | days_present=", days_present, " days_expected=", days_expected, " days_missing=", days_missing)
   }
   
@@ -473,24 +483,12 @@ for (yr in years) {
 }
 
 # ============================================================
-# 4) QA REPORTS (local) - counts by year + parquet schemas
+# QA outputs
 # ============================================================
-
 qa_counts_path  <- file.path(cfg$qa_dir, paste0("qa_file_counts_", cfg$area_id, "_", run_id, ".csv"))
 qa_schema_path  <- file.path(cfg$qa_dir, paste0("qa_parquet_schemas_", cfg$area_id, "_", run_id, ".csv"))
 qa_summary_path <- file.path(cfg$qa_dir, paste0("qa_summary_", cfg$area_id, "_", run_id, ".txt"))
 
-# Helper: capture a simple schema (names + typeof/class) from a parquet file
-schema_from_parquet <- function(p) {
-  df <- arrow::read_parquet(p)
-  data.frame(
-    col_name = names(df),
-    col_type = vapply(df, function(x) paste(class(x), collapse = "/"), character(1)),
-    stringsAsFactors = FALSE
-  )
-}
-
-# A) File counts by year (expected vs present) for each dataset tree
 ds_roots <- list(
   precip_parquet     = cfg$out_precip_root,
   derived_ytd_precip = cfg$out_dytd_root,
@@ -506,21 +504,12 @@ for (yr in years_all) {
   if (length(yr_dates) == 0) next
   
   end_expected <- max(yr_dates)
-  
   start_expected <- as.Date(paste0(yr, "-01-01"))
-  if (!is.na(cfg$date_start) && format(cfg$date_start, "%Y") == yr) {
-    start_expected <- max(start_expected, cfg$date_start)
-  }
-  if (!is.na(cfg$date_start) && format(cfg$date_start, "%Y") > yr) next
-  
-  # end_expected already respects cfg$date_end via conus_dates filtering, but keep safe:
-  if (!is.na(cfg$date_end) && format(cfg$date_end, "%Y") == yr) {
-    end_expected <- min(end_expected, cfg$date_end)
-  }
-  
+  if (!is.na(cfg$date_start) && format(cfg$date_start, "%Y") == yr) start_expected <- max(start_expected, cfg$date_start)
+  if (!is.na(cfg$date_end)   && format(cfg$date_end,   "%Y") == yr) end_expected   <- min(end_expected, cfg$date_end)
   if (end_expected < start_expected) next
   
-  expected_dates <- seq.Date(start_expected, end_expected, by = "day")
+  expected_dates <- seq.Date(start_expected, end_expected, by="day")
   expected_n <- length(expected_dates)
   
   for (ds in names(ds_roots)) {
@@ -562,27 +551,24 @@ counts_df <- if (length(counts_rows) == 0) {
 
 write.csv(counts_df, qa_counts_path, row.names = FALSE)
 
-# B) Parquet schemas (one representative file per dataset + the two asset parquets)
 schema_rows <- list()
 
-# Asset schemas from cached files
 schema_rows[[length(schema_rows) + 1]] <- data.frame(
   item = "boundary_mask_asset",
-  sample_file = normalizePath(mask_cache, winslash = "/", mustWork = FALSE),
+  sample_file = normalizePath(mask_cache, winslash="/", mustWork=FALSE),
   schema_from_parquet(mask_cache),
   stringsAsFactors = FALSE
 )
 
 schema_rows[[length(schema_rows) + 1]] <- data.frame(
   item = "area_vol_calcs_asset",
-  sample_file = normalizePath(vol_cache, winslash = "/", mustWork = FALSE),
+  sample_file = normalizePath(vol_cache, winslash="/", mustWork=FALSE),
   schema_from_parquet(vol_cache),
   stringsAsFactors = FALSE
 )
 
-# Dataset schemas: pick the first part-0.parquet found (should be stable across years)
 pick_first_parquet <- function(root) {
-  files <- list.files(root, pattern = "part-0\\.parquet$", recursive = TRUE, full.names = TRUE)
+  files <- list.files(root, pattern="part-0\\.parquet$", recursive=TRUE, full.names=TRUE)
   if (length(files) == 0) return(NA_character_)
   files[1]
 }
@@ -590,10 +576,9 @@ pick_first_parquet <- function(root) {
 for (ds in names(ds_roots)) {
   sample <- pick_first_parquet(ds_roots[[ds]])
   if (is.na(sample)) next
-  
   schema_rows[[length(schema_rows) + 1]] <- data.frame(
     item = paste0("dataset_", ds),
-    sample_file = normalizePath(sample, winslash = "/", mustWork = FALSE),
+    sample_file = normalizePath(sample, winslash="/", mustWork=FALSE),
     schema_from_parquet(sample),
     stringsAsFactors = FALSE
   )
@@ -608,27 +593,22 @@ schema_df <- if (length(schema_rows) == 0) {
 
 write.csv(schema_df, qa_schema_path, row.names = FALSE)
 
-# C) Human-readable summary
-summ_lines <- c(
+writeLines(c(
   paste0("area_id: ", cfg$area_id),
   paste0("run_id: ", run_id),
-  paste0("created_utc: ", format(Sys.time(), tz="UTC", usetz=TRUE)),
+  paste0("out_root: ", normalizePath(cfg$out_root, winslash="/", mustWork=FALSE)),
+  paste0("conus_local_root: ", normalizePath(cfg$conus_local_root, winslash="/", mustWork=FALSE)),
+  paste0("boundary_mask_uri: ", cfg$boundary_mask_uri),
+  paste0("area_vol_calcs_uri: ", cfg$area_vol_calcs_uri),
   "",
   "QA outputs:",
   paste0("  - ", qa_counts_path),
   paste0("  - ", qa_schema_path),
   paste0("  - ", qa_summary_path),
   "",
-  "Notes:",
-  "  - qa_file_counts: expected vs present counts per year for each dataset tree.",
-  "  - missing_dates_*.txt files are written only when missing_files > 0.",
-  "  - qa_parquet_schemas: column names + R classes from representative parquets (assets + one file per dataset)."
-)
-
-writeLines(summ_lines, qa_summary_path)
+  "Note: missing_dates_*.txt written only when missing_files > 0."
+), qa_summary_path)
 
 log_msg("QA written: ", qa_counts_path)
 log_msg("QA written: ", qa_schema_path)
-log_msg("QA written: ", qa_summary_path)
-
-log_msg("DONE. Local AOI archive written under: ", cfg$out_root)
+log_msg("DONE. out_root=", cfg$out_root)
