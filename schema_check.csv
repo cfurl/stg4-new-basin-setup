@@ -1,0 +1,72 @@
+
+==============================
+DATASET: derived_ytd_precip 
+==============================
+S3 object: s3://stg4-24hr-aws-pipeline/CONUS_subset/production_areas/labatt/derived_ytd_precip/year=2026/month=05/day=31/part-0.parquet
+Expected cols: 5 
+Actual cols   : 11 
+OK           : 4 
+Missing      : 1 
+Extra        : 7 
+Type mismatch: 0 
+
+--- Problems ---
+       col_name expected_type actual_type        status
+1      bin_area       numeric        <NA> MISSING_IN_S3
+2           lat          <NA>     numeric   EXTRA_IN_S3
+3           lon          <NA>     numeric   EXTRA_IN_S3
+4          year          <NA>     integer   EXTRA_IN_S3
+5 thru_date_utc          <NA>   character   EXTRA_IN_S3
+6  days_present          <NA>     integer   EXTRA_IN_S3
+7 days_expected          <NA>     integer   EXTRA_IN_S3
+8  days_missing          <NA>     integer   EXTRA_IN_S3
+
+==============================
+DATASET: precip_parquet 
+==============================
+S3 object: s3://stg4-24hr-aws-pipeline/CONUS_subset/production_areas/labatt/precip/precip_parquet/year=2026/month=05/day=31/part-0.parquet
+Expected cols: 8 
+Actual cols   : 8 
+OK           : 6 
+Missing      : 0 
+Extra        : 0 
+Type mismatch: 2 
+
+--- Problems ---
+  col_name expected_type actual_type        status
+1      lat       numeric   character TYPE_MISMATCH
+2      lon       numeric   character TYPE_MISMATCH
+
+==============================
+DATASET: stats_daily 
+==============================
+S3 object: s3://stg4-24hr-aws-pipeline/CONUS_subset/production_areas/labatt/stats/daily/year=2026/month=05/day=31/part-0.parquet
+Expected cols: 9 
+Actual cols   : 16 
+OK           : 9 
+Missing      : 0 
+Extra        : 7 
+Type mismatch: 0 
+
+--- Problems ---
+             col_name expected_type actual_type      status
+1  pct_area_gt_2p54mm          <NA>     numeric EXTRA_IN_S3
+2  pct_area_gt_6p35mm          <NA>     numeric EXTRA_IN_S3
+3  pct_area_gt_12p7mm          <NA>     numeric EXTRA_IN_S3
+4 pct_area_gt_19p05mm          <NA>     numeric EXTRA_IN_S3
+5  pct_area_gt_25p4mm          <NA>     numeric EXTRA_IN_S3
+6 pct_area_gt_31p75mm          <NA>     numeric EXTRA_IN_S3
+7  pct_area_gt_38p1mm          <NA>     numeric EXTRA_IN_S3
+
+==============================
+DATASET: stats_ytd 
+==============================
+S3 object: s3://stg4-24hr-aws-pipeline/CONUS_subset/production_areas/labatt/stats/ytd/year=2026/month=05/day=31/part-0.parquet
+Expected cols: 9 
+Actual cols   : 9 
+OK           : 9 
+Missing      : 0 
+Extra        : 0 
+Type mismatch: 0 
+Schema match: PASS
+> 
