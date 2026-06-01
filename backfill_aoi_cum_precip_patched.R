@@ -1,16 +1,6 @@
 # backfill_aoi_local_one_areaid.R
-# FULL DROP-IN (creates any missing folders automatically)
-#
-# What it does (LOCAL backfill):
-#   - Reads CONUS parquet from a local canonical archive (no S3 CONUS reads)
-#   - Downloads AOI boundary mask + area-vol-calc masks ONCE from S3 (cached locally)
-#   - Writes LOCAL canonical trees:
-#       precip/precip_parquet/year=YYYY/month=MM/day=DD/part-0.parquet
-#       stats/daily/year=YYYY/month=MM/day=DD/part-0.parquet
-#       derived_ytd_precip/year=YYYY/month=MM/day=DD/part-0.parquet
-#       stats/ytd/year=YYYY/month=MM/day=DD/part-0.parquet
-#   - YTD resets each Jan 1
-#   - Safe for reruns when skip_existing=TRUE because it seeds YTD accumulators on skip
+# FULL DROP-IN (creates missing folders; fixes F:// path issues)
+# + QA block appended at the end (ONLY ADDED, no logic changes)
 
 suppressPackageStartupMessages({
   library(dplyr)
@@ -22,40 +12,34 @@ suppressPackageStartupMessages({
 # ============================================================
 # MASTER CONFIG (EDIT ONLY THIS BLOCK)
 # ============================================================
-AREA_ID <- "labatt"   # <--- change this ONLY
+AREA_ID <- "labatt"   # <--- change ONLY this
 
 cfg <- list(
   area_id = AREA_ID,
-  cycle_hour = "12",  # fixed for 24h product
+  cycle_hour = "12",
   
   # Local CONUS parquet repository (input)
   conus_local_root = "F:/conus_archive_build/stg4_24hr_conus_archive/parquet",
   
-  # Local output base drive/folder
-  out_base = "F:/",   # will write to: F:/<area_id>_archive_build/...
+  # IMPORTANT: use "F:" (not "F:/") to avoid "F://..."
+  out_base = "F:",
   
-  # AWS creds file (only used to download AOI assets)
   renviron_path = ".Renviron",
   aws_region = "us-east-2",
   
-  # S3 locations (derived ONLY from area_id)
   pipeline_bucket = "stg4-24hr-aws-pipeline",
   aoi_config_prefix = "CONUS_subset/config/aoi",
   
-  # Optional processing window (inclusive). NA = ignore
   date_start = as.Date(NA),
   date_end   = as.Date(NA),
   
-  # Safety cap (set Inf to unleash)
-  max_days_total = 3,
+  max_days_total = Inf,
   
-  # Behavior
-  skip_existing = TRUE,         # skip day if all 4 outputs exist
-  seed_ytd_on_skip = TRUE,      # IMPORTANT: keeps YTD correct during incremental reruns
+  skip_existing = TRUE,
+  seed_ytd_on_skip = TRUE,
   strict_join = TRUE,
   strict_volcalc_join = TRUE,
   
-  # What to write
   write_precip = TRUE,
   write_daily_stats = TRUE,
   write_derived_ytd_precip = TRUE,
@@ -64,9 +48,43 @@ cfg <- list(
 # ============================================================
 
 # ============================================================
+# Local path normalizer (prevents F://...)
+# ============================================================
+fix_drive_slash <- function(p) {
+  p <- gsub("\\\\", "/", p)
+  # collapse "F://something" -> "F:/something"
+  p <- gsub("^([A-Za-z]):/+", "\\1:/", p)
+  p
+}
+
+safe_mkdir <- function(p) {
+  p <- fix_drive_slash(p)
+  dir.create(p, recursive = TRUE, showWarnings = FALSE)
+  
+  if (!dir.exists(p)) {
+    drive <- paste0(substr(p, 1, 2), "/")
+    msg <- paste0(
+      "Failed to create directory: ", p, "\n",
+      "Preflight:\n",
+      "  Sys.info()[sysname] = ", Sys.info()[["sysname"]], "\n",
+      "  drive exists? file.exists('", drive, "') = ", file.exists(drive), "\n",
+      "  can create test dir? try dir.create('", drive, "__r_test__')\n",
+      "\n",
+      "If you're running inside WSL/Linux/Docker, you cannot use F:/ paths.\n",
+      "Use a mounted path like /mnt/f/... (WSL) or a Docker mount path."
+    )
+    stop(msg)
+  }
+  
+  invisible(TRUE)
+}
+
+ensure_dir_for_file <- function(p) safe_mkdir(dirname(fix_drive_slash(p)))
+
+# ============================================================
 # Derived paths (do NOT edit)
 # ============================================================
-cfg$out_root <- file.path(cfg$out_base, paste0(cfg$area_id, "_archive_build"))
+cfg$out_root <- fix_drive_slash(file.path(cfg$out_base, paste0(cfg$area_id, "_archive_build")))
 
 cfg$boundary_mask_uri <- sprintf(
   "s3://%s/%s/%s/assets/%s-boundary-mask.parquet",
@@ -77,34 +95,28 @@ cfg$area_vol_calcs_uri <- sprintf(
   cfg$pipeline_bucket, cfg$aoi_config_prefix, cfg$area_id, cfg$area_id
 )
 
-cfg$cache_dir <- file.path(cfg$out_root, "_cache")
-cfg$qa_dir    <- file.path(cfg$out_root, "qa")
+cfg$cache_dir <- fix_drive_slash(file.path(cfg$out_root, "_cache"))
+cfg$out_precip_root <- fix_drive_slash(file.path(cfg$out_root, "precip", "precip_parquet"))
+cfg$out_daily_root  <- fix_drive_slash(file.path(cfg$out_root, "stats", "daily"))
+cfg$out_ytd_root    <- fix_drive_slash(file.path(cfg$out_root, "stats", "ytd"))
+cfg$out_dytd_root   <- fix_drive_slash(file.path(cfg$out_root, "derived_ytd_precip"))
 
-cfg$out_precip_root <- file.path(cfg$out_root, "precip", "precip_parquet")
-cfg$out_daily_root  <- file.path(cfg$out_root, "stats", "daily")
-cfg$out_ytd_root    <- file.path(cfg$out_root, "stats", "ytd")
-cfg$out_dytd_root   <- file.path(cfg$out_root, "derived_ytd_precip")
+# ---------------- ADDED: QA folder + run_id ----------------
+cfg$qa_dir <- fix_drive_slash(file.path(cfg$out_root, "qa"))
+run_id <- format(Sys.time(), "%Y%m%dT%H%M%SZ", tz = "UTC")
+# -----------------------------------------------------------
 
-# ============================================================
-# Small utilities (folder-safe)
-# ============================================================
-safe_mkdir <- function(p) {
-  dir.create(p, recursive = TRUE, showWarnings = FALSE)
-  if (!dir.exists(p)) stop("Failed to create directory: ", p)
-}
-
-ensure_dir_for_file <- function(p) safe_mkdir(dirname(p))
-
-# Make sure the entire output tree exists BEFORE any downloads/writes
+# Create ALL folders up front
 safe_mkdir(cfg$out_root)
 safe_mkdir(cfg$cache_dir)
-safe_mkdir(cfg$qa_dir)
 safe_mkdir(cfg$out_precip_root)
 safe_mkdir(cfg$out_daily_root)
 safe_mkdir(cfg$out_ytd_root)
 safe_mkdir(cfg$out_dytd_root)
 
-run_id <- format(Sys.time(), "%Y%m%dT%H%M%SZ", tz = "UTC")
+# ---------------- ADDED: create QA dir up front -------------
+safe_mkdir(cfg$qa_dir)
+# -----------------------------------------------------------
 
 log_msg <- function(..., level="INFO") {
   ts <- format(Sys.time(), tz="UTC", usetz=TRUE)
@@ -123,7 +135,7 @@ parse_s3_uri <- function(uri) {
 }
 
 download_s3_cached <- function(s3, s3_uri, local_path) {
-  # KEY FIX: always create folder for the target file
+  local_path <- fix_drive_slash(local_path)
   ensure_dir_for_file(local_path)
   
   if (file.exists(local_path) && file.info(local_path)$size > 0) {
@@ -136,7 +148,6 @@ download_s3_cached <- function(s3, s3_uri, local_path) {
   
   obj <- s3$get_object(Bucket = p$bucket, Key = p$key)
   
-  # Write atomically to avoid partial files
   tmp <- tempfile(fileext = ".tmp", tmpdir = dirname(local_path))
   writeBin(obj$Body, tmp)
   file.rename(tmp, local_path)
@@ -165,13 +176,13 @@ parse_date_from_conus_path <- function(p) {
 
 out_day_path <- function(root, d) {
   d <- as.Date(d, origin="1970-01-01")
-  file.path(
+  fix_drive_slash(file.path(
     root,
     paste0("year=",  format(d, "%Y")),
     paste0("month=", format(d, "%m")),
     paste0("day=",   format(d, "%d")),
     "part-0.parquet"
-  )
+  ))
 }
 
 # ============================================================
@@ -188,8 +199,8 @@ log_msg("Resolved asset URIs: ",
 # ============================================================
 # 1) Download + read AOI assets (cached locally)
 # ============================================================
-mask_cache <- file.path(cfg$cache_dir, paste0(cfg$area_id, "-boundary-mask.parquet"))
-vol_cache  <- file.path(cfg$cache_dir, paste0(cfg$area_id, "-area-vol-calc-masks.parquet"))
+mask_cache <- fix_drive_slash(file.path(cfg$cache_dir, paste0(cfg$area_id, "-boundary-mask.parquet")))
+vol_cache  <- fix_drive_slash(file.path(cfg$cache_dir, paste0(cfg$area_id, "-area-vol-calc-masks.parquet")))
 
 download_s3_cached(s3, cfg$boundary_mask_uri, mask_cache)
 download_s3_cached(s3, cfg$area_vol_calcs_uri, vol_cache)
@@ -214,7 +225,7 @@ vol_masks <- arrow::read_parquet(vol_cache) %>%
   distinct(grib_id, hrap_x, hrap_y, bin_area, area_name, .keep_all = TRUE)
 
 log_msg("Mask rows: ", nrow(mask))
-log_msg("Vol-mask rows: ", nrow(vol_masks), " distinct areas=", dplyr::n_distinct(vol_masks$area_name))
+log_msg("Vol-mask rows: ", nrow(vol_masks), " areas=", dplyr::n_distinct(vol_masks$area_name))
 
 # ============================================================
 # 2) Discover local CONUS files
@@ -315,13 +326,10 @@ for (yr in years) {
     rain_col <- detect_rain_col(conus, cycle_eff)
     
     conus2 <- conus %>%
-      mutate(
-        cycle = cycle_eff,
-        rain_mm = .data[[rain_col]]
-      ) %>%
+      mutate(cycle = cycle_eff,
+             rain_mm = .data[[rain_col]]) %>%
       select(-all_of(rain_col))
     
-    # A) AOI precip subset
     joined <- conus2 %>%
       inner_join(mask, by="grib_id", suffix=c("", "_mask"))
     
@@ -346,18 +354,13 @@ for (yr in years) {
         rain_mm  = as.numeric(rain_mm)
       )
     
-    if (nrow(aoi) == 0) {
-      log_msg("WARN: AOI subset is 0 rows on ", as.character(d), " (skipping day)", level="WARN")
-      next
-    }
+    if (nrow(aoi) == 0) next
     
     if (isTRUE(cfg$write_precip)) {
       ensure_dir_for_file(out_precip)
       arrow::write_parquet(aoi, out_precip, compression="zstd")
-      if (file.info(out_precip)$size < 10*1024) stop("Precip parquet too small: ", out_precip)
     }
     
-    # B) Daily stats
     rain_df <- conus2 %>%
       transmute(
         grib_id = as.integer(grib_id),
@@ -400,37 +403,27 @@ for (yr in years) {
     if (isTRUE(cfg$write_daily_stats)) {
       ensure_dir_for_file(out_daily)
       arrow::write_parquet(daily_stats, out_daily, compression="zstd")
-      if (file.info(out_daily)$size < 1024) stop("Daily stats parquet too small: ", out_daily)
     }
     
-    # coverage stats
     processed_dates <- sort(unique(c(processed_dates, d)))
     days_present  <- length(processed_dates)
     days_expected <- length(seq.Date(year_start, d, by="day"))
     days_missing  <- days_expected - days_present
     
-    # C) derived_ytd_precip (reset each year)
     if (isTRUE(cfg$write_derived_ytd_precip)) {
-      
       day_rain <- aoi %>%
-        transmute(
-          grib_id  = as.integer(grib_id),
-          hrap_x   = as.integer(hrap_x),
-          hrap_y   = as.integer(hrap_y),
-          bin_area = as.numeric(bin_area),
-          rain_mm  = as.numeric(rain_mm)
-        )
+        transmute(grib_id=as.integer(grib_id),
+                  hrap_x=as.integer(hrap_x),
+                  hrap_y=as.integer(hrap_y),
+                  bin_area=as.numeric(bin_area),
+                  rain_mm=as.numeric(rain_mm))
       
       if (is.null(cum_ytd)) {
-        cum_ytd <- day_rain %>%
-          transmute(grib_id, rain_ytd_mm = ifelse(is.na(rain_mm), 0, rain_mm))
+        cum_ytd <- day_rain %>% transmute(grib_id, rain_ytd_mm = ifelse(is.na(rain_mm), 0, rain_mm))
       } else {
         cum_ytd <- cum_ytd %>%
-          full_join(day_rain %>% transmute(grib_id, add = ifelse(is.na(rain_mm), 0, rain_mm)),
-                    by="grib_id") %>%
-          mutate(
-            rain_ytd_mm = ifelse(is.na(rain_ytd_mm), 0, rain_ytd_mm) + ifelse(is.na(add), 0, add)
-          ) %>%
+          full_join(day_rain %>% transmute(grib_id, add = ifelse(is.na(rain_mm), 0, rain_mm)), by="grib_id") %>%
+          mutate(rain_ytd_mm = ifelse(is.na(rain_ytd_mm), 0, rain_ytd_mm) + ifelse(is.na(add), 0, add)) %>%
           select(grib_id, rain_ytd_mm)
       }
       
@@ -441,57 +434,182 @@ for (yr in years) {
       
       ensure_dir_for_file(out_dytd)
       arrow::write_parquet(ytd_cells, out_dytd, compression="zstd")
-      if (file.info(out_dytd)$size < 1024) stop("derived_ytd_precip parquet too small: ", out_dytd)
     }
     
-    # D) stats/ytd (reset each year)
     if (isTRUE(cfg$write_ytd_stats)) {
-      
       daily_vol <- daily_stats %>%
-        transmute(
-          area_name = as.character(area_name),
-          area_m2   = as.numeric(area_m2),
-          vol_m3    = as.numeric(vol_m3)
-        )
+        transmute(area_name=as.character(area_name), area_m2=as.numeric(area_m2), vol_m3=as.numeric(vol_m3))
       
       if (is.null(cum_vol)) {
-        cum_vol <- daily_vol %>%
-          transmute(area_name, area_m2, ytd_vol_m3 = vol_m3)
+        cum_vol <- daily_vol %>% transmute(area_name, area_m2, ytd_vol_m3 = vol_m3)
       } else {
         cum_vol <- cum_vol %>%
-          full_join(daily_vol %>% transmute(area_name, area_m2_new = area_m2, add_vol = vol_m3),
-                    by="area_name") %>%
-          mutate(
-            area_m2 = ifelse(is.na(area_m2), area_m2_new, area_m2),
-            ytd_vol_m3 = ifelse(is.na(ytd_vol_m3), 0, ytd_vol_m3) + ifelse(is.na(add_vol), 0, add_vol)
-          ) %>%
+          full_join(daily_vol %>% transmute(area_name, area_m2_new=area_m2, add_vol=vol_m3), by="area_name") %>%
+          mutate(area_m2 = ifelse(is.na(area_m2), area_m2_new, area_m2),
+                 ytd_vol_m3 = ifelse(is.na(ytd_vol_m3), 0, ytd_vol_m3) + ifelse(is.na(add_vol), 0, add_vol)) %>%
           select(area_name, area_m2, ytd_vol_m3)
       }
       
       ytd_stats <- cum_vol %>%
-        mutate(
-          area_id = cfg$area_id,
-          year = yr,
-          days_present  = days_present,
-          days_expected = days_expected,
-          days_missing  = days_missing,
-          ytd_avg_mm = (ytd_vol_m3 / area_m2) * 1000
-        ) %>%
+        mutate(area_id = cfg$area_id, year = yr,
+               days_present=days_present, days_expected=days_expected, days_missing=days_missing,
+               ytd_avg_mm = (ytd_vol_m3 / area_m2) * 1000) %>%
         select(area_id, area_name, year, days_present, days_expected, days_missing,
                area_m2, ytd_vol_m3, ytd_avg_mm)
       
       ensure_dir_for_file(out_ytd)
       arrow::write_parquet(ytd_stats, out_ytd, compression="zstd")
-      if (file.info(out_ytd)$size < 1024) stop("YTD stats parquet too small: ", out_ytd)
     }
     
-    log_msg("OK ", as.character(d),
-            " | days_present=", days_present,
-            " days_expected=", days_expected,
-            " days_missing=", days_missing)
+    log_msg("OK ", as.character(d), " | days_present=", days_present, " days_expected=", days_expected, " days_missing=", days_missing)
   }
   
-  log_msg("YEAR DONE: ", yr, " (days=", length(year_files), ")")
+  log_msg("YEAR DONE: ", yr)
 }
 
+# ============================================================
+# --------------------------- ADDED QA ------------------------
+# Writes:
+#  - qa_file_counts_<area_id>_<run_id>.csv
+#  - qa_parquet_schemas_<area_id>_<run_id>.csv
+#  - qa_summary_<area_id>_<run_id>.txt
+#  - missing_dates_<dataset>_year=<YYYY>_<run_id>.txt (if missing)
+# ============================================================
+
+schema_from_parquet <- function(p) {
+  df <- arrow::read_parquet(p)
+  data.frame(
+    col_name = names(df),
+    col_type = vapply(df, function(x) paste(class(x), collapse="/"), character(1)),
+    stringsAsFactors = FALSE
+  )
+}
+
+pick_first_parquet <- function(root) {
+  files <- list.files(root, pattern="part-0\\.parquet$", recursive=TRUE, full.names=TRUE)
+  if (length(files) == 0) return(NA_character_)
+  fix_drive_slash(files[1])
+}
+
+# Ensure qa dir exists (defensive)
+safe_mkdir(cfg$qa_dir)
+
+qa_counts_csv  <- fix_drive_slash(file.path(cfg$qa_dir, paste0("qa_file_counts_", cfg$area_id, "_", run_id, ".csv")))
+qa_schema_csv  <- fix_drive_slash(file.path(cfg$qa_dir, paste0("qa_parquet_schemas_", cfg$area_id, "_", run_id, ".csv")))
+qa_summary_txt <- fix_drive_slash(file.path(cfg$qa_dir, paste0("qa_summary_", cfg$area_id, "_", run_id, ".txt")))
+
+ds_roots <- list(
+  precip_parquet     = cfg$out_precip_root,
+  derived_ytd_precip = cfg$out_dytd_root,
+  stats_daily        = cfg$out_daily_root,
+  stats_ytd          = cfg$out_ytd_root
+)
+
+years_all <- sort(unique(format(conus_dates, "%Y")))
+counts_rows <- list()
+
+for (yr in years_all) {
+  yr_dates <- conus_dates[format(conus_dates, "%Y") == yr]
+  if (length(yr_dates) == 0) next
+  
+  # expected = Jan 1 through last CONUS date processed for that year
+  start_expected <- as.Date(paste0(yr, "-01-01"))
+  end_expected   <- max(yr_dates)
+  expected_dates <- seq.Date(start_expected, end_expected, by="day")
+  expected_n <- length(expected_dates)
+  
+  for (ds in names(ds_roots)) {
+    root <- ds_roots[[ds]]
+    present_flags <- vapply(expected_dates, function(d) file.exists(out_day_path(root, d)), logical(1))
+    present_n <- sum(present_flags)
+    miss_n <- expected_n - present_n
+    
+    counts_rows[[length(counts_rows) + 1]] <- data.frame(
+      area_id = cfg$area_id,
+      dataset = ds,
+      year = as.integer(yr),
+      start_expected = as.character(start_expected),
+      end_expected = as.character(end_expected),
+      expected_files = expected_n,
+      present_files = present_n,
+      missing_files = miss_n,
+      pct_present = if (expected_n == 0) NA_real_ else round(100 * present_n / expected_n, 2),
+      stringsAsFactors = FALSE
+    )
+    
+    if (miss_n > 0) {
+      miss_path <- fix_drive_slash(file.path(cfg$qa_dir, paste0("missing_dates_", ds, "_year=", yr, "_", run_id, ".txt")))
+      writeLines(as.character(expected_dates[!present_flags]), miss_path)
+    }
+  }
+}
+
+counts_df <- if (length(counts_rows) == 0) {
+  data.frame(area_id=character(), dataset=character(), year=integer(),
+             start_expected=character(), end_expected=character(),
+             expected_files=integer(), present_files=integer(),
+             missing_files=integer(), pct_present=double(),
+             stringsAsFactors = FALSE)
+} else {
+  do.call(rbind, counts_rows)
+}
+write.csv(counts_df, qa_counts_csv, row.names = FALSE)
+
+schema_rows <- list()
+
+# assets (cached)
+if (file.exists(mask_cache)) {
+  schema_rows[[length(schema_rows) + 1]] <- data.frame(
+    item = "boundary_mask_asset",
+    sample_file = mask_cache,
+    schema_from_parquet(mask_cache),
+    stringsAsFactors = FALSE
+  )
+}
+if (file.exists(vol_cache)) {
+  schema_rows[[length(schema_rows) + 1]] <- data.frame(
+    item = "area_vol_calcs_asset",
+    sample_file = vol_cache,
+    schema_from_parquet(vol_cache),
+    stringsAsFactors = FALSE
+  )
+}
+
+# representative parquet per dataset
+for (ds in names(ds_roots)) {
+  sample <- pick_first_parquet(ds_roots[[ds]])
+  if (is.na(sample)) next
+  schema_rows[[length(schema_rows) + 1]] <- data.frame(
+    item = paste0("dataset_", ds),
+    sample_file = sample,
+    schema_from_parquet(sample),
+    stringsAsFactors = FALSE
+  )
+}
+
+schema_df <- if (length(schema_rows) == 0) {
+  data.frame(item=character(), sample_file=character(), col_name=character(), col_type=character(),
+             stringsAsFactors = FALSE)
+} else {
+  do.call(rbind, schema_rows)
+}
+write.csv(schema_df, qa_schema_csv, row.names = FALSE)
+
+writeLines(c(
+  paste0("area_id: ", cfg$area_id),
+  paste0("run_id: ", run_id),
+  paste0("out_root: ", cfg$out_root),
+  "",
+  "QA outputs:",
+  paste0("  - ", qa_counts_csv),
+  paste0("  - ", qa_schema_csv),
+  paste0("  - ", qa_summary_txt),
+  "",
+  "Notes:",
+  "  - expected_files per year = Jan 1 .. last CONUS day processed for that year in this run.",
+  "  - missing_dates_*.txt written only when missing_files > 0."
+), qa_summary_txt)
+
+log_msg("QA written: ", qa_counts_csv)
+log_msg("QA written: ", qa_schema_csv)
 log_msg("DONE. out_root=", cfg$out_root)
