@@ -1,7 +1,11 @@
-# backfill_aoi_cum_precip_pipeline_schema_test3.R
-# FULL DROP-IN for AOI local backfill testing
-# Purpose: write labatt archive outputs using the same column names/order/types as the current pipeline
-# Default config is TEST MODE: 2002-01-01 through 2002-01-03, max_days_total = 3, skip_existing = FALSE
+# backfill_aoi_cum_precip_pipeline_schema_fast.R
+# FULL DROP-IN for AOI local backfill with pipeline-matching schemas
+# Purpose: write labatt archive outputs using the same column names/order/types as the current pipeline.
+# Performance fix vs prior test script:
+#   1) schema QA checks the in-memory data frames before writing, not by reading every parquet back
+#   2) QA CSVs are written once at the end, not after every output file
+#   3) derived_ytd_precip cumulative update uses match()/vector updates, not full_join() every day
+# Default config remains TEST MODE: 2002-01-01 through 2002-01-03, max_days_total = 3, skip_existing = FALSE
 
 suppressPackageStartupMessages({
   library(dplyr)
@@ -31,12 +35,12 @@ cfg <- list(
   pipeline_bucket = "stg4-24hr-aws-pipeline",
   aoi_config_prefix = "CONUS_subset/config/aoi",
   
-  date_start = as.Date("2002-01-01"),
-  date_end   = as.Date("2002-01-03"),
+  date_start = as.Date(NA),
+  date_end   = as.Date(NA),
   
   # TEST MODE: process only three files first.
   # For full archive build, set date_start/date_end as needed and max_days_total = Inf.
-  max_days_total = 3,
+  max_days_total = Inf,
   
   # FALSE for schema repair/testing so bad old local outputs are overwritten.
   skip_existing = FALSE,
@@ -49,8 +53,17 @@ cfg <- list(
   write_derived_ytd_precip = TRUE,
   write_ytd_stats = TRUE,
   
-  # Stop immediately if any written parquet does not match pipeline schema.
-  fail_on_schema_mismatch = TRUE
+  # Stop immediately if any in-memory output table does not match pipeline schema.
+  fail_on_schema_mismatch = TRUE,
+
+  # Fast production behavior:
+  # - pre_write: compare in-memory df column names/order/types before writing; cheap, runs for every file.
+  # - No full parquet read-back after every write. Final QA reads only representative sample files.
+  schema_qa_mode = "pre_write",
+
+  # Optional progress checkpoint: write schema QA CSV every N processed days.
+  # Set to Inf to write only at the end. 365 is a useful compromise for long runs.
+  qa_write_every_n_days = 365
 )
 # ============================================================
 
@@ -195,7 +208,7 @@ out_day_path <- function(root, d) {
 
 
 # ============================================================
-# Pipeline schema enforcement + write-time QA
+# Pipeline schema enforcement + fast pre-write QA
 # ============================================================
 expected_schemas <- list(
   precip_parquet = data.frame(
@@ -269,27 +282,37 @@ compare_df_to_expected_schema <- function(df, dataset, file_path) {
   cmp
 }
 
-record_schema_check <- function(dataset, file_path) {
-  df <- arrow::read_parquet(file_path)
-  cmp <- compare_df_to_expected_schema(df, dataset, file_path)
-  schema_check_rows[[length(schema_check_rows) + 1]] <<- cmp
+record_schema_check <- function(dataset, df, file_path, check_stage = "pre_write") {
+  # Fast schema QA: compare the in-memory output table immediately before writing.
+  # This avoids the very slow prior behavior of writing a parquet and then reading
+  # the full parquet back from disk for every dataset/day.
+  cmp <- compare_df_to_expected_schema(df, dataset, file_path) %>%
+    dplyr::mutate(check_stage = check_stage, .before = checked_utc)
 
-  # Persist every time so you still get QA evidence even if the next file fails.
-  all_checks <- dplyr::bind_rows(schema_check_rows)
-  write.csv(all_checks, qa_schema_check_csv, row.names = FALSE)
+  schema_check_rows[[length(schema_check_rows) + 1]] <<- cmp
 
   bad <- cmp %>% dplyr::filter(status != "OK")
   if (nrow(bad) > 0) {
-    log_msg("SCHEMA FAIL for ", dataset, " at ", file_path, " - see ", qa_schema_check_csv, level = "ERROR")
+    log_msg("SCHEMA FAIL for ", dataset, " at ", file_path, level = "ERROR")
     print(as.data.frame(bad), row.names = FALSE)
     if (isTRUE(cfg$fail_on_schema_mismatch)) {
       stop("Schema check failed for ", dataset, ": ", file_path)
     }
-  } else {
-    log_msg("SCHEMA PASS for ", dataset, ": ", file_path)
   }
 
   invisible(cmp)
+}
+
+flush_schema_checks <- function() {
+  # Write accumulated schema checks once per checkpoint/end instead of rewriting
+  # a growing CSV after every parquet output.
+  all_checks <- if (length(schema_check_rows) == 0) {
+    data.frame()
+  } else {
+    dplyr::bind_rows(schema_check_rows)
+  }
+  write.csv(all_checks, qa_schema_check_csv, row.names = FALSE)
+  invisible(all_checks)
 }
 
 coerce_precip_schema <- function(df) {
@@ -443,6 +466,7 @@ log_msg("Days selected: ", length(conus_files),
 # 3) PROCESS YEAR-BY-YEAR (YTD resets each Jan 1)
 # ============================================================
 years <- sort(unique(format(conus_dates, "%Y")))
+processed_day_counter <- 0L
 
 for (yr in years) {
   
@@ -540,8 +564,8 @@ for (yr in years) {
     
     if (isTRUE(cfg$write_precip)) {
       ensure_dir_for_file(out_precip)
+      record_schema_check("precip_parquet", aoi, out_precip)
       arrow::write_parquet(aoi, out_precip, compression="zstd")
-      record_schema_check("precip_parquet", out_precip)
     }
     
     rain_df <- conus2 %>%
@@ -595,8 +619,8 @@ for (yr in years) {
     
     if (isTRUE(cfg$write_daily_stats)) {
       ensure_dir_for_file(out_daily)
+      record_schema_check("stats_daily", daily_stats, out_daily)
       arrow::write_parquet(daily_stats, out_daily, compression="zstd")
-      record_schema_check("stats_daily", out_daily)
     }
     
     processed_dates <- sort(unique(c(processed_dates, d)))
@@ -629,19 +653,25 @@ for (yr in years) {
         cum_ytd <- day_add %>%
           transmute(grib_id, hrap_x, hrap_y, lat, lon, rain_ytd_mm = add)
       } else {
-        cum_ytd <- cum_ytd %>%
-          full_join(day_add, by="grib_id", suffix=c("", "_new")) %>%
-          mutate(
-            hrap_x = dplyr::coalesce(hrap_x, hrap_x_new),
-            hrap_y = dplyr::coalesce(hrap_y, hrap_y_new),
-            lat = dplyr::coalesce(lat, lat_new),
-            lon = dplyr::coalesce(lon, lon_new),
-            rain_ytd_mm = ifelse(is.na(rain_ytd_mm), 0, rain_ytd_mm) + ifelse(is.na(add), 0, add)
-          ) %>%
-          select(grib_id, hrap_x, hrap_y, lat, lon, rain_ytd_mm)
+        # Fast cumulative update. The prior version used full_join() every day,
+        # which rebuilt the entire AOI grid repeatedly and became extremely slow.
+        idx <- match(day_add$grib_id, cum_ytd$grib_id)
+        old_rows <- !is.na(idx)
+
+        if (any(old_rows)) {
+          cum_ytd$rain_ytd_mm[idx[old_rows]] <-
+            cum_ytd$rain_ytd_mm[idx[old_rows]] + day_add$add[old_rows]
+        }
+
+        if (any(!old_rows)) {
+          new_rows <- day_add[!old_rows, ] %>%
+            transmute(grib_id, hrap_x, hrap_y, lat, lon, rain_ytd_mm = add)
+          cum_ytd <- bind_rows(cum_ytd, new_rows)
+        }
       }
       
       ytd_cells <- cum_ytd %>%
+        arrange(grib_id) %>%
         mutate(
           year = as.integer(yr),
           thru_date_utc = as.character(d),
@@ -652,8 +682,8 @@ for (yr in years) {
         coerce_derived_ytd_schema()
       
       ensure_dir_for_file(out_dytd)
+      record_schema_check("derived_ytd_precip", ytd_cells, out_dytd)
       arrow::write_parquet(ytd_cells, out_dytd, compression="zstd")
-      record_schema_check("derived_ytd_precip", out_dytd)
     }
     
     if (isTRUE(cfg$write_ytd_stats)) {
@@ -663,11 +693,19 @@ for (yr in years) {
       if (is.null(cum_vol)) {
         cum_vol <- daily_vol %>% transmute(area_name, area_m2, ytd_vol_m3 = vol_m3)
       } else {
-        cum_vol <- cum_vol %>%
-          full_join(daily_vol %>% transmute(area_name, area_m2_new=area_m2, add_vol=vol_m3), by="area_name") %>%
-          mutate(area_m2 = ifelse(is.na(area_m2), area_m2_new, area_m2),
-                 ytd_vol_m3 = ifelse(is.na(ytd_vol_m3), 0, ytd_vol_m3) + ifelse(is.na(add_vol), 0, add_vol)) %>%
-          select(area_name, area_m2, ytd_vol_m3)
+        idx_vol <- match(daily_vol$area_name, cum_vol$area_name)
+        old_vol_rows <- !is.na(idx_vol)
+
+        if (any(old_vol_rows)) {
+          cum_vol$ytd_vol_m3[idx_vol[old_vol_rows]] <-
+            cum_vol$ytd_vol_m3[idx_vol[old_vol_rows]] + daily_vol$vol_m3[old_vol_rows]
+        }
+
+        if (any(!old_vol_rows)) {
+          new_vol_rows <- daily_vol[!old_vol_rows, ] %>%
+            transmute(area_name, area_m2, ytd_vol_m3 = vol_m3)
+          cum_vol <- bind_rows(cum_vol, new_vol_rows)
+        }
       }
       
       ytd_stats <- cum_vol %>%
@@ -677,10 +715,18 @@ for (yr in years) {
         coerce_ytd_stats_schema()
       
       ensure_dir_for_file(out_ytd)
+      record_schema_check("stats_ytd", ytd_stats, out_ytd)
       arrow::write_parquet(ytd_stats, out_ytd, compression="zstd")
-      record_schema_check("stats_ytd", out_ytd)
     }
     
+    processed_day_counter <- processed_day_counter + 1L
+    if (is.finite(cfg$qa_write_every_n_days) &&
+        cfg$qa_write_every_n_days > 0 &&
+        processed_day_counter %% cfg$qa_write_every_n_days == 0) {
+      flush_schema_checks()
+      log_msg("Schema QA checkpoint written after ", processed_day_counter, " processed days: ", qa_schema_check_csv)
+    }
+
     log_msg("OK ", as.character(d), " | days_present=", days_present, " days_expected=", days_expected, " days_missing=", days_missing)
   }
   
@@ -692,7 +738,7 @@ for (yr in years) {
 # Writes:
 #  - qa_file_counts_<area_id>_<run_id>.csv
 #  - qa_parquet_schemas_<area_id>_<run_id>.csv
-#  - qa_schema_checks_<area_id>_<run_id>.csv
+#  - qa_schema_checks_<area_id>_<run_id>.csv (fast pre-write schema checks)
 #  - qa_summary_<area_id>_<run_id>.txt
 #  - missing_dates_<dataset>_year=<YYYY>_<run_id>.txt (if missing)
 # ============================================================
@@ -714,6 +760,10 @@ pick_first_parquet <- function(root) {
 
 # Ensure qa dir exists (defensive)
 safe_mkdir(cfg$qa_dir)
+
+# Final write of accumulated fast pre-write schema checks.
+flush_schema_checks()
+log_msg("Schema QA written: ", qa_schema_check_csv)
 
 qa_counts_csv  <- fix_drive_slash(file.path(cfg$qa_dir, paste0("qa_file_counts_", cfg$area_id, "_", run_id, ".csv")))
 qa_schema_csv  <- fix_drive_slash(file.path(cfg$qa_dir, paste0("qa_parquet_schemas_", cfg$area_id, "_", run_id, ".csv")))

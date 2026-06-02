@@ -5,5 +5,5 @@ i need to formalize this process, but here is what i've got
 3. Add_area_aws/upload_step8_aws.R
 4. Create a new manifest then
 5. Add_area_aws/upload_manifest.R
-6. backfill_aoi_cum_precip_patched.R
+6. backfill_aoi_cum_precip_pipeline_schema_fast_statsytd_year_string.R
 7. upload_archive_s3.R

@@ -33,8 +33,8 @@ S3 <- list(
 )
 
 # Behavior
-DRY_RUN <- FALSE                     # TRUE = no uploads, just QA plan
-SKIP_IF_EXISTS_SAME_SIZE <- TRUE     # uses HEAD; skips if ContentLength matches
+DRY_RUN <- FALSE                    # TRUE = no uploads, just QA plan
+SKIP_IF_EXISTS_SAME_SIZE <- FALSE     # uses HEAD; skips if ContentLength matches
 VERIFY_S3_COUNTS_AFTER <- FALSE      # lists all objects after; can be slow for huge archives
 
 # ============================================================
