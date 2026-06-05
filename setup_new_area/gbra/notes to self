@@ -1,0 +1,30 @@
+i need to formalize this process, but here is what i've got
+
+0. Do your gis work, get your extent and your subbasins into a single shapefile.
+
+1. 1_create_hrap_masks.R 
+    
+    Adjust the config block at top of script before running. No need to reproject shapefile from Step 1 - script will do it.
+    This will create the three assets you need for your S3 config folder. 1) cells.gpkg 2). <area_id>-area-vol-calc-masks.parquet and 
+    3). <area_id>-boundary-mask.parquet.
+    
+2. 2_upload_aws_spatial_assets.R
+
+    Adjust the paths in three different locations to get correct local and S3 paths.  Uploads spatial assets created in 1_.
+    
+3a. Download your aoi_manifest.json from: s3://stg4-24hr-aws-pipeline/CONUS_subset/config/aoi_manifest.json. Edit file for new area.
+
+3. 3_upload_aoi_manifest.R
+
+    Edit path to your local aoi_manifest.json that you just edited. 
+    At this point your pipeline should run, manually test state machine.
+    
+4a. Make sure you have CONUS parquets in your local archive up to the date you started your pipeline scrape. F:\conus_archive_build\stg4_24hr_conus_archive\parquet
+
+4. 4_backfill_aoi.R
+
+    Edit <area_id> in config block. This will write the local archive. Takes several hours.
+
+5. 5_upload_archive_s3.R
+
+    Edit your local and s3 paths in config.

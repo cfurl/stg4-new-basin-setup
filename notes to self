@@ -1,9 +1,14 @@
 i need to formalize this process, but here is what i've got
 
-1. Do your gis work, get your extent and your subbasins into a single shapefile
-2. Run setup_new_area/area_setup.R
+1. Do your gis work, get your extent and your subbasins into a single shapefile.
+2. Run setup_new_area/area_setup.R. 
+    Adjust the config block before running, no need to reproject shapefile from Step 1. Script will do it.
+    This will create the three assets you need for your S3 config folder. 1) cells.gpkg 
+    2). <area_id>-area-vol-calc-masks.parquet and 3). <area_id>-boundary-mask.parquet.
 3. Add_area_aws/upload_step8_aws.R
 4. Create a new manifest then
 5. Add_area_aws/upload_manifest.R
-6. backfill_aoi_cum_precip_pipeline_schema_fast_statsytd_year_string.R
+    - at this point your pipeline should run.
+    - after it does, proceed to backfill operations
+6. backfill_aoi_cum_precip_rework.R
 7. upload_archive_s3.R
