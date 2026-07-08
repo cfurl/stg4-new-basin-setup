@@ -18,7 +18,7 @@ suppressPackageStartupMessages({
 # ============================================================
 # MASTER CONFIG (EDIT ONLY THIS BLOCK)
 # ============================================================
-AREA_ID <- "gbra"   # <--- change ONLY this
+AREA_ID <- "ea-rchg-zn"   # <--- change ONLY this
 
 cfg <- list(
   area_id = AREA_ID,
@@ -37,7 +37,8 @@ cfg <- list(
   aoi_config_prefix = "CONUS_subset/config/aoi",
   
   date_start = as.Date(NA),
-  date_end   = as.Date(NA),
+  #date_end   = as.Date(NA),
+  date_end = as.Date("2026-01-01"),
   
   # TEST MODE: process only three files first.
   # For full archive build, set date_start/date_end as needed and max_days_total = Inf.

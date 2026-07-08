@@ -14,22 +14,22 @@ READ_RENVIRON_PATH <- ".Renviron"   # you said you'll have this in the working d
 
 AWS_REGION <- "us-east-2"
 
-QA_DIR <- "F:/texas_mrb_archive_build/QA_results"
+QA_DIR <- "F:/ea-rchg-zn_archive_build/QA_results"
 
 # Local roots (canonical parquet trees)
 LOCAL <- list(
-  precip_parquet      = "F:/texas_mrb_archive_build/precip/precip_parquet",
-  derived_ytd_precip  = "F:/texas_mrb_archive_build/derived_ytd_precip",
-  stats_daily         = "F:/texas_mrb_archive_build/stats/daily",
-  stats_ytd           = "F:/texas_mrb_archive_build/stats/ytd"
+  precip_parquet      = "F:/ea-rchg-zn_archive_build/precip/precip_parquet",
+  derived_ytd_precip  = "F:/ea-rchg-zn_archive_build/derived_ytd_precip",
+  stats_daily         = "F:/ea-rchg-zn_archive_build/stats/daily",
+  stats_ytd           = "F:/ea-rchg-zn_archive_build/stats/ytd"
 )
 
 # Target S3 prefixes (must end with /)
 S3 <- list(
-  precip_parquet      = "s3://stg4-24hr-aws-pipeline/CONUS_subset/production_areas/texas_mrb/precip/precip_parquet/",
-  derived_ytd_precip  = "s3://stg4-24hr-aws-pipeline/CONUS_subset/production_areas/texas_mrb/derived_ytd_precip/",
-  stats_daily         = "s3://stg4-24hr-aws-pipeline/CONUS_subset/production_areas/texas_mrb/stats/daily/",
-  stats_ytd           = "s3://stg4-24hr-aws-pipeline/CONUS_subset/production_areas/texas_mrb/stats/ytd/"
+  precip_parquet      = "s3://stg4-24hr-aws-pipeline/CONUS_subset/production_areas/ea-rchg-zn/precip/precip_parquet/",
+  derived_ytd_precip  = "s3://stg4-24hr-aws-pipeline/CONUS_subset/production_areas/ea-rchg-zn/derived_ytd_precip/",
+  stats_daily         = "s3://stg4-24hr-aws-pipeline/CONUS_subset/production_areas/ea-rchg-zn/stats/daily/",
+  stats_ytd           = "s3://stg4-24hr-aws-pipeline/CONUS_subset/production_areas/ea-rchg-zn/stats/ytd/"
 )
 
 # Behavior
