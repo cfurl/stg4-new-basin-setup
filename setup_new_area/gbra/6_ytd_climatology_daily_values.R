@@ -26,16 +26,16 @@
 # CONFIG
 # ==============================================================================
 
-AREA_ID <- "ea-rchg-zn"
+AREA_ID <- "texas_mrb"
 
 BEGIN_YEAR <- 2002L
 END_YEAR   <- 2025L
 
-HIST_YTD_ROOT <- "F:/ea-rchg-zn_archive_build/stats/ytd"
+HIST_YTD_ROOT <- "F:/texas_mrb_archive_build/stats/ytd"
 
 # Local output location.
 # Keep this separate from the tidy hive archive structure.
-LOCAL_OUTPUT_DIR <- "F:/ea-rchg-zn_archive_build/climatology"
+LOCAL_OUTPUT_DIR <- "F:/texas_mrb_archive_build/climatology"
 
 OUTPUT_FILE_NAME <- sprintf(
   "ytd_climatology_values_%s_%s_%s.parquet",

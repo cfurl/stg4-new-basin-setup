@@ -22,14 +22,14 @@
 # CONFIG
 # ==============================================================================
 
-AREA_ID <- "ea-rchg-zn"
+AREA_ID <- "texas_mrb"
 
 BEGIN_YEAR <- 2002L
 END_YEAR   <- 2025L
 
 # Local climatology folder. This should match LOCAL_OUTPUT_DIR from
 # 6_ytd_climatology_values.R.
-LOCAL_CLIMATOLOGY_DIR <- "F:/ea-rchg-zn_archive_build/climatology"
+LOCAL_CLIMATOLOGY_DIR <- "F:/texas_mrb_archive_build/climatology"
 
 INPUT_VALUES_FILE_NAME <- sprintf(
   "ytd_climatology_values_%s_%s_%s.parquet",
